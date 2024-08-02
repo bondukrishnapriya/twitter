@@ -1,7 +1,8 @@
 const express = require('express')
+const {open} = require('sqlite')
 const path = require('path')
 const sqlite3 = require('sqlite3')
-const {open} = require('sqlite')
+
 const bcrypt = require('bcrypt')
 
 const jwt = require('jsonwebtoken')
@@ -29,7 +30,9 @@ const initializeDbAndServer = async () => {
 initializeDbAndServer()
 const getFollowingPeopleIdsOfUser = async username => {
   const getTheFollowingPeopleQuery = `
-    SELECT following_user_id FROM follower INNER JOIN user ON user.user_id =follower.follower_user_id WHERE user.username='${username}';`
+    SELECT following_user_id FROM follower INNER JOIN user 
+    ON user.user_id =follower.follower_user_id 
+    WHERE user.username='${username}';`
   const followingPeople = await db.all(getTheFollowingPeopleQuery)
   const arrayOfIds = followingPeople.map(eachUser => eachUser.following_user_id)
   return arrayOfIds
@@ -42,7 +45,7 @@ const authentication = (request, response, next) => {
     jwtToken = authHeader.split('')[1]
   }
   if (jwtToken) {
-    jwt.verify(jwtToken, 'SECRET_KEY', (error, payload) => {
+    jwt.verify(jwtToken, 'SECRET_KEY', async (error, payload) => {
       if (error) {
         response.status(401)
         response.send('Invalid JWT Token')
@@ -61,8 +64,9 @@ const authentication = (request, response, next) => {
 const tweetAccessVerification = async (request, response, next) => {
   const {userId} = request
   const {tweetId} = request.params
-  const getTweetQuery = `SELECT * FROM tweet INNER JOIN follower ON tweet.user_id =follower.following_user_id WHERE 
-    tweet.tweet_id='${tweetId}' AND follower_user_id='${userId}';`
+  const getTweetQuery = `SELECT * FROM tweet 
+  INNER JOIN follower ON tweet.user_id =follower.following_user_id WHERE 
+    tweet.tweet_id=${tweetId} AND follower_user_id=${userId};`
   const tweet = await db.get(getTweetQuery)
   if (tweet === undefined) {
     response.status(401)
@@ -85,7 +89,8 @@ app.post('/register/', async (request, response) => {
       response.send('Password is too short')
     } else {
       const hashedPassword = await bcrypt.hash(password, 10)
-      const createUserQuery = `INSERT INTO user(username,password,name,gender) VALUES('${username}','${hashedPassword}','${name}','${gender}')`
+      const createUserQuery = `INSERT INTO user(username,password,name,gender) 
+      VALUES('${username}','${hashedPassword}','${name}','${gender}')`
       await db.run(createUserQuery)
       response.send('User created successfully')
     }
@@ -124,7 +129,7 @@ app.get('/user/tweets/feed/', authentication, async (request, response) => {
 
   const followingPeopleIds = await getFollowingPeopleIdsOfUser(username)
 
-  const getTweetsQuery = `SELECT username,tweet,date_time as datetime FROM user INNER JOIN tweet ON user.user_id =tweet.user_id 
+  const getTweetsQuery = `SELECT username,tweet,date_time AS datetime FROM user INNER JOIN tweet ON user.user_id =tweet.user_id 
   WHERE user.user_id IN (${followingPeopleIds})
   ORDER BY date_time DESC
   LIMIT 4`
@@ -133,21 +138,21 @@ app.get('/user/tweets/feed/', authentication, async (request, response) => {
   response.send(tweets)
 })
 
-app.get('/user/following/'.authentication, async (request, response) => {
+app.get('/user/following/', authentication, async (request, response) => {
   const {userId} = request
 
   const getFollowingUsersQuery = `SELECT name FROM follower INNER JOIN user ON user.user_id =follower.following_user_id
-   WHERE follower_user_id ='${userId}';`
+   WHERE follower_user_id =${userId};`
 
   const followingPeople = await db.all(getFollowingUsersQuery)
   response.send(followingPeople)
 })
 
-app.get('/user/followers', authentication, async (requset, response) => {
-  const {userId} = requset
+app.get('/user/followers', authentication, async (request, response) => {
+  const {userId} = request
 
   const getFollowersQuery = `SELECT DISTINCT name FROM follower INNER JOIN user 
-  ON user.user_id =follower.follwer_user_id WHERE following_user_id ='${userId}';`
+  ON user.user_id =follower.follwer_user_id WHERE following_user_id =${userId};`
   const followers = await db.all(getFollowersQuery)
   response.send(followers)
 })
@@ -159,8 +164,8 @@ app.get(
   async (request, response) => {
     const {tweetId} = request.params
     const getTweetQuery = `SELECT tweet,
-  (SELECT COUNT() FROM Like WHERE  tweet_id= '${tweetId}) AS likes,
-  (SELECT COUNT() FROM reply WHERE tweet_id ='${tweetId}') AS replies,
+  (SELECT COUNT() FROM Like WHERE  tweet_id= ${tweetId}) AS likes,
+  (SELECT COUNT() FROM reply WHERE tweet_id =${tweetId}) AS replies,
   date_time AS dateTime 
   FROM tweet 
   WHERE tweet.tweet_id ='${tweetId}'; `
@@ -176,7 +181,7 @@ app.get(
   tweetAccessVerification,
   async (request, response) => {
     const {tweetId} = request.params
-    const getLikesQuery = `SELECT username FROM user INNER JOIN like ON user.user_id =like.user_id WHERE tweet_id = '${tweetId}';`
+    const getLikesQuery = `SELECT username FROM user INNER JOIN like ON user.user_id =like.user_id WHERE tweet_id = ${tweetId};`
 
     const likedUsers = await db.all(getLikesQuery)
     const usersArray = likedUsers.map(eachUser => eachUser.username)
@@ -191,7 +196,7 @@ app.get(
   tweetAccessVerification,
   async (request, response) => {
     const {tweetId} = request.params
-    const getRepliedQuery = `SELECT name,reply FROM user INNER JOIN reply ON user.user_id =reply.user_id WHERE tweet_id ='${tweetId}';`
+    const getRepliedQuery = `SELECT name, reply FROM user INNER JOIN reply ON user.user_id =reply.user_id WHERE tweet_id =${tweetId};`
 
     const repliedUsers = await db.all(getRepliedQuery)
     response.send({replies: repliedUsers})
@@ -209,13 +214,13 @@ app.get('/users/tweets/', authentication, async (request, response) => {
   response.send(tweets)
 })
 
-app.post('/users/tweets/', authentication, async (request, response) => {
+app.post('/user/tweets/', authentication, async (request, response) => {
   const {tweet} = request.body
-  const userId = parseInt(request.body)
   const userId = parseInt(request.userId)
+
   const dateTime = new Date().toJSON().substring(0, 19).replace('T', '')
 
-  const createTweetQuery = `INSERT INTO tweet(tweet,user_id,date_time) VALUES ('${tweet}','${userId}', '${dateTime}');`
+  const createTweetQuery = `INSERT INTO tweet(tweet,user_id,date_time) VALUES ('${tweet}',${userId}, '${dateTime}');`
 
   await db.run(createTweetQuery)
   response.send('Created a Tweet')
@@ -224,7 +229,7 @@ app.post('/users/tweets/', authentication, async (request, response) => {
 app.delete('/tweets/:tweetId/', authentication, async (request, response) => {
   const {tweetId} = request.params
   const {userId} = request
-  const getTheTweetQuery = `SELECT  * FROM tweet WHERE user_id='${userId}' AND tweet_id='${tweetId}';`
+  const getTheTweetQuery = `SELECT  * FROM tweet WHERE user_id=${userId} AND tweet_id=${tweetId};`
 
   const tweet = await db.get(getTheTweetQuery)
   console.log(tweet)
@@ -233,7 +238,7 @@ app.delete('/tweets/:tweetId/', authentication, async (request, response) => {
     response.status(401)
     response.send('Invalid Request')
   } else {
-    const deleteTweetQuery = `DELETE FROM tweet WHERE tweet_id ='${tweetId}';`
+    const deleteTweetQuery = `DELETE FROM tweet WHERE tweet_id =${tweetId};`
     await db.run(deleteTweetQuery)
     response.send('Tweet Removed')
   }
